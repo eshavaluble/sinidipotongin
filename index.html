@@ -1692,6 +1692,9 @@
         const { fetchFile } = FFmpeg;
         ff.FS('writeFile', inputName, await fetchFile(localVideoBlob));
 
+        let singleOutputName = null;
+        let singleOutputData = null;
+
         // Process loop
         for (let i = 0; i < clipQueue.length; i++) {
           const q = clipQueue[i];
@@ -1715,7 +1718,12 @@
           );
 
           const data = ff.FS('readFile', outputName);
-          zip.file(outputName, data);
+          if (clipQueue.length === 1) {
+            singleOutputName = outputName;
+            singleOutputData = data;
+          } else {
+            zip.file(outputName, data);
+          }
 
           try { ff.FS('unlink', outputName); } catch (_) { }
         }
@@ -1723,21 +1731,32 @@
         // Cleanup input
         try { ff.FS('unlink', inputName); } catch (_) { }
 
-        setProgress(90, 'Mengekstrak file ZIP... (Mohon tunggu)');
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
-        const dlUrl = URL.createObjectURL(zipBlob);
-        const zipFilename = `SiniDipotongin_${videoTitle}_${clipQueue.length}clips.zip`;
+        let dlUrl, dlFilename, dlSize, successMsg, btnHtml;
+
+        if (clipQueue.length === 1) {
+          setProgress(90, 'Menyiapkan file MP4...');
+          const blob = new Blob([singleOutputData.buffer], { type: 'video/mp4' });
+          dlUrl = URL.createObjectURL(blob);
+          dlFilename = singleOutputName;
+          dlSize = blob.size;
+          successMsg = '✅ Clip siap didownload!';
+          btnHtml = `<a class="btn-dl" href="${dlUrl}" download="${dlFilename}">⬇️ Download Clip (${formatBytes(dlSize)})</a>`;
+        } else {
+          setProgress(90, 'Mengekstrak file ZIP... (Mohon tunggu)');
+          const zipBlob = await zip.generateAsync({ type: 'blob' });
+          dlUrl = URL.createObjectURL(zipBlob);
+          dlFilename = `SiniDipotongin_${videoTitle}_${clipQueue.length}clips.zip`;
+          dlSize = zipBlob.size;
+          successMsg = '✅ Berhasil menyusun antrean potongan menjadi file .zip!';
+          btnHtml = `<a class="btn-dl" href="${dlUrl}" download="${dlFilename}">⬇️ Download File ZIP (${formatBytes(dlSize)})</a>`;
+        }
 
         setProgress(100, 'Selesai! ✅');
         setTimeout(() => {
           progWrap.classList.remove('show');
-          resultWrap.innerHTML = `
-            <a class="btn-dl" href="${dlUrl}" download="${zipFilename}">
-              ⬇️ Download File ZIP (${formatBytes(zipBlob.size)})
-            </a>
-          `;
+          resultWrap.innerHTML = btnHtml;
           resultWrap.classList.add('show');
-          toast('✅ Berhasil menyusun antrean potongan menjadi file .zip!');
+          toast(successMsg);
 
           // Reset queue
           clipQueue = [];
