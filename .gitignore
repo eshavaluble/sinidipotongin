@@ -1,0 +1,19 @@
+# Ignore temporary clips directory
+clips/
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Ignore IDE files
+.vscode/
+.idea/
+
+# Ignore node_modules if you ever decide to install node packages
+node_modules/
+package-lock.json
+
+# Ignore Antigravity dev/scratch files (just in case)
+.system_generated/
+*.log
