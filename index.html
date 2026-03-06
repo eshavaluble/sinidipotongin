@@ -1612,7 +1612,7 @@
       } catch (err) {
         console.error('FFmpeg error:', err);
         dot.className = 'ffmpeg-dot fail';
-        lbl.textContent = 'FFmpeg gagal — pastikan pakai localhost:8787';
+        lbl.textContent = 'FFmpeg gagal dimuat (Reload halaman/matikan adblock)';
       }
       ffmpegLoading = false;
     }
@@ -1676,7 +1676,7 @@
         toast('⏳ FFmpeg masih dimuat, harap tunggu...', 'err');
         await initFFmpeg();
         if (!ffmpegReady) {
-          showErr('FFmpeg gagal dimuat.\nPastikan buka di localhost:8787.');
+          showErr('FFmpeg gagal dimuat.\nPastikan koneksi stabil & reload halaman.');
           return;
         }
       }
