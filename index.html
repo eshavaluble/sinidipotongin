@@ -13,6 +13,9 @@
     href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap"
     rel="stylesheet" />
 
+  <!-- JSZip for bulk download zipping -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
   <!-- COI ServiceWorker: enables SharedArrayBuffer for FFmpeg WASM (via localhost) -->
   <script>
     (function () {
@@ -727,6 +730,96 @@
       flex-shrink: 0;
     }
 
+    /* Queue */
+    .queue-wrap {
+      margin-top: 16px;
+      display: none;
+    }
+
+    .queue-wrap.show {
+      display: block;
+    }
+
+    .queue-header {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-2);
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .queue-badge {
+      background: rgba(139, 92, 246, 0.15);
+      color: #a78bfa;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 10px;
+    }
+
+    .queue-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .queue-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px dashed var(--border);
+      border-radius: var(--r-sm);
+    }
+
+    .queue-item-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .queue-item-time {
+      font-size: 13px;
+      font-weight: 600;
+      color: #a78bfa;
+    }
+
+    .queue-item-dur {
+      font-size: 11px;
+      color: var(--text-3);
+    }
+
+    .btn-queue-del {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      border-radius: 6px;
+      padding: 5px 8px;
+      color: #fca5a5;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .btn-process {
+      margin-top: 14px;
+      width: 100%;
+      padding: 12px;
+      background: #10b981;
+      border: none;
+      border-radius: var(--r-sm);
+      color: #fff;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(16, 185, 129, 0.2);
+    }
+
+    .btn-process:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     /* ===== FFMPEG STATUS ===== */
     .ffmpeg-pill {
       position: fixed;
@@ -1069,19 +1162,15 @@
   <!-- Source Selector -->
   <div class="url-section">
 
-    <!-- Mode Tabs -->
-    <div class="mode-tabs">
-      <button class="mode-tab active" id="tabYT" onclick="switchMode('youtube')">
-        ▶ YouTube URL
-      </button>
-      <button class="mode-tab" id="tabUp" onclick="switchMode('upload')">
-        📁 Upload Video
-      </button>
+    <!-- YouTube mode is currently disabled due to API blocks -->
+    <div class="mode-tabs" style="display: none;">
+      <button class="mode-tab" id="tabYT" onclick="switchMode('youtube')">▶ YouTube URL</button>
+      <button class="mode-tab active" id="tabUp" onclick="switchMode('upload')">📁 Upload Video</button>
     </div>
 
     <div class="input-panel">
       <!-- YouTube Panel -->
-      <div class="yt-panel active" id="ytPanel">
+      <div class="yt-panel" id="ytPanel">
         <div class="url-box">
           <input type="url" id="urlInput" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" />
           <button class="btn-primary" id="loadBtn" onclick="loadVideo()">
@@ -1092,7 +1181,7 @@
       </div>
 
       <!-- Upload Panel -->
-      <div class="up-panel" id="upPanel">
+      <div class="up-panel active" id="upPanel">
         <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()"
           ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
           <div class="upload-icon">🎬</div>
@@ -1187,10 +1276,22 @@
             <button class="btn-seek" onclick="seekTo('end')">▶ Preview Selesai</button>
           </div>
 
-          <!-- Cut Button -->
-          <button class="btn-cut" id="cutBtn" onclick="startCut()">
-            ✂️ Potong &amp; Download
+          <!-- Add Queue Button -->
+          <button class="btn-cut" id="addQueueBtn" onclick="addToQueue()">
+            ➕ Tambah ke Antrean
           </button>
+
+          <!-- Queue List -->
+          <div class="queue-wrap" id="queueWrap">
+            <div class="queue-header">
+              <span>DAFTAR POTONGAN</span>
+              <span class="queue-badge" id="queueCount">0 clip</span>
+            </div>
+            <div class="queue-list" id="queueList"></div>
+            <button class="btn-process" id="processBtn" onclick="processQueue()">
+              🚀 Proses Semua Antrean
+            </button>
+          </div>
 
           <!-- Progress -->
           <div class="progress-wrap" id="progressWrap">
@@ -1243,6 +1344,13 @@
     let ff = null;
     let currentMode = 'youtube'; // 'youtube' | 'upload'
     let localVideoBlob = null;   // File object when user uploads
+    let clipQueue = [];          // Array of { id, start, end, dur, quality }
+    let queueCounter = 0;
+
+    // Set initial mode to upload bypassing youtube
+    window.addEventListener('DOMContentLoaded', () => {
+      switchMode('upload');
+    });
 
     // ===== TOAST =====
     function toast(msg, type = 'ok', ms = 3500) {
@@ -1511,41 +1619,80 @@
 
     window.addEventListener('load', () => setTimeout(initFFmpeg, 800));
 
-    // ===== CUT & DOWNLOAD =====
-    async function startCut() {
-      // Validate based on mode
-      if (currentMode === 'upload') {
-        if (!localVideoBlob) { toast('Upload video dulu!', 'err'); return; }
-      } else {
-        if (!videoId) { toast('Muat video YouTube dulu!', 'err'); return; }
+    // ===== QUEUE LOGIC =====
+    function addToQueue() {
+      if (currentMode === 'upload' && !localVideoBlob) {
+        toast('Upload video dulu!', 'err'); return;
       }
 
       const start = getStart();
       const end = getEnd();
       const dur = end - start;
+      const quality = document.getElementById('qualitySelect').value;
 
       if (dur <= 0) { toast('⚠ Waktu selesai harus lebih besar dari waktu mulai!', 'err'); return; }
       if (dur > 900) { toast('⚠ Maksimal durasi clip adalah 15 menit', 'err'); return; }
+
+      queueCounter++;
+      clipQueue.push({ id: queueCounter, start, end, dur, quality });
+      renderQueue();
+      toast('✅ Ditambahkan ke antrean!');
+    }
+
+    function removeQueue(id) {
+      clipQueue = clipQueue.filter(q => q.id !== id);
+      renderQueue();
+    }
+
+    function renderQueue() {
+      const wrap = document.getElementById('queueWrap');
+      const list = document.getElementById('queueList');
+      const count = document.getElementById('queueCount');
+
+      if (clipQueue.length === 0) {
+        wrap.classList.remove('show');
+        return;
+      }
+
+      wrap.classList.add('show');
+      count.textContent = `${clipQueue.length} clip`;
+
+      list.innerHTML = clipQueue.map((q, i) => `
+        <div class="queue-item">
+          <div class="queue-item-info">
+            <div class="queue-item-time">Clip ${i + 1}: ${secsToStr(q.start)} - ${secsToStr(q.end)}</div>
+            <div class="queue-item-dur">Durasi: ${q.dur}s &middot; ${q.quality}p</div>
+          </div>
+          <button class="btn-queue-del" onclick="removeQueue(${q.id})">✕ Hapus</button>
+        </div>
+      `).join('');
+    }
+
+    // ===== FFMPEG CUT & DOWNLOAD ZIP =====
+    async function processQueue() {
+      if (clipQueue.length === 0) return;
 
       if (!ffmpegReady) {
         toast('⏳ FFmpeg masih dimuat, harap tunggu...', 'err');
         await initFFmpeg();
         if (!ffmpegReady) {
-          showErr('FFmpeg tidak dapat dimuat.\n\nCoba:\n• Gunakan http://localhost:8787 (jalankan Jalankan.bat)\n• Buka di Chrome / Edge versi terbaru\n• Refresh halaman dan tunggu hingga muncul notif "FFmpeg siap ✓"');
+          showErr('FFmpeg gagal dimuat.\nPastikan buka di localhost:8787.');
           return;
         }
       }
 
-      // Reset UI
-      const cutBtn = document.getElementById('cutBtn');
+      const procBtn = document.getElementById('processBtn');
+      const addBtn = document.getElementById('addQueueBtn');
       const progWrap = document.getElementById('progressWrap');
       const progFill = document.getElementById('progressFill');
       const progLabel = document.getElementById('progressLabel');
       const resultWrap = document.getElementById('resultWrap');
       const errBox = document.getElementById('errBox');
 
-      cutBtn.disabled = true;
-      cutBtn.innerHTML = '⏳ Memproses...';
+      // UI block
+      procBtn.disabled = true;
+      addBtn.disabled = true;
+      procBtn.innerHTML = '⏳ Memproses...';
       progWrap.classList.add('show');
       resultWrap.classList.remove('show');
       errBox.classList.remove('show');
@@ -1555,38 +1702,30 @@
         progLabel.textContent = label;
       }
 
+      let zip = new JSZip();
+      const videoTitle = (document.getElementById('videoName').textContent || 'video')
+        .replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_').substring(0, 30);
+
       try {
-        let videoBlob = null;
+        setProgress(10, 'Menyiapkan file lokal...');
+        const inputExt = localVideoBlob.name.split('.').pop().toLowerCase() || 'mp4';
+        const inputName = `input.${inputExt}`;
 
-        if (currentMode === 'upload') {
-          // --- Upload mode: use local file + FFmpeg WASM ---
-          setProgress(50, 'Menggunakan file lokal...');
-          let localBlob = localVideoBlob;
-          setProgress(60, 'Memotong video dengan FFmpeg...');
+        const { fetchFile } = FFmpeg;
+        ff.FS('writeFile', inputName, await fetchFile(localVideoBlob));
 
-          if (!ffmpegReady) {
-            toast('⏳ Tunggu FFmpeg selesai dimuat...', 'err');
-            cutBtn.disabled = false;
-            cutBtn.innerHTML = '✂️ Potong &amp; Download';
-            progWrap.classList.remove('show');
-            return;
-          }
+        // Process loop
+        for (let i = 0; i < clipQueue.length; i++) {
+          const q = clipQueue[i];
+          const outputName = `clip${i + 1}_${videoTitle}_${secsToStr(q.start).replace(/:/g, '-')}.mp4`;
 
-          // Use original extension for FFmpeg to detect format correctly
-          const inputExt = localVideoBlob.name.split('.').pop().toLowerCase() || 'mp4';
-          const inputName = `input.${inputExt}`;
-          const videoTitle = document.getElementById('videoName').textContent || 'clip';
-          const safeTitle = videoTitle.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_').substring(0, 40) || 'clip';
-          const outputName = `${safeTitle}_${secsToStr(start).replace(/:/g, '-')}.mp4`;
+          let pctBase = 10 + (i / clipQueue.length) * 80;
+          setProgress(pctBase, `Memotong clip ${i + 1} dari ${clipQueue.length}...`);
 
-          const { fetchFile } = FFmpeg;
-          ff.FS('writeFile', inputName, await fetchFile(localBlob));
-
-          setProgress(72, 'Memotong dan mengkonversi video...');
           await ff.run(
-            '-ss', String(start),
+            '-ss', String(q.start),
             '-i', inputName,
-            '-t', String(dur),
+            '-t', String(q.dur),
             '-c:v', 'libx264',
             '-preset', 'ultrafast',
             '-crf', '23',
@@ -1597,109 +1736,47 @@
             outputName
           );
 
-          setProgress(92, 'Menyiapkan file untuk download...');
           const data = ff.FS('readFile', outputName);
-          const blob = new Blob([data.buffer], { type: 'video/mp4' });
-          const dlUrl = URL.createObjectURL(blob);
+          zip.file(outputName, data);
 
-          // Cleanup FFmpeg FS
-          try { ff.FS('unlink', inputName); } catch (_) { }
           try { ff.FS('unlink', outputName); } catch (_) { }
-
-          setProgress(100, 'Selesai! ✅');
-          setTimeout(() => {
-            progWrap.classList.remove('show');
-            resultWrap.innerHTML = `
-              <a class="btn-dl" href="${dlUrl}" download="${outputName}">
-                ⬇️ Download clip (${formatBytes(blob.size)})
-              </a>
-              <div style="text-align:center;margin-top:8px;font-size:11px;color:var(--text-3)">
-                ${secsToStr(start)} → ${secsToStr(end)} &middot; ${secsToStr(dur)}
-              </div>
-            `;
-            resultWrap.classList.add('show');
-            toast('✅ Clip siap didownload!');
-          }, 400);
-
-          return; // Exit upload mode processing
         }
 
-        // --- YouTube mode: Download via public Cobalt API instances ---
-        throw new Error(
-          'Mohon Maaf, Fitur Download YouTube Sedang Gangguan.\n\n' +
-          'Semua server publik pengunduh YouTube (Cobalt API) saat ini sedang diblokir oleh sistem anti-bot YouTube atau memerlukan otentikasi (JWT).\n\n' +
-          '💡 Solusi Sementara:\n' +
-          '1. Download video YouTube yang kamu inginkan secara manual (misalnya lewat savefrom.net, y2mate, atau IDM).\n' +
-          '2. Buka tab "📁 Upload Video" di atas.\n' +
-          '3. Masukkan video yang sudah kamu download.\n' +
-          '4. Potong video seperti biasa (proses ini sangat cepat karena langsung di brosurmu!).\n\n' +
-          'Aplikasi ini dirancang untuk bekerja 100% offline (tanpa server backend) sesuai permintaanmu, sehingga kita bergantung pada API publik pihak ketiga untuk fitur download YouTube otomatis.'
-        );
-
-        // --- FFmpeg processing for YouTube mode ---
-        setProgress(60, 'Memotong video dengan FFmpeg...');
-
-        if (!ffmpegReady) {
-          throw new Error('FFmpeg belum siap. Silakan muat ulang halaman.');
-        }
-
-        const inputExt = 'mp4';
-        const inputName = `input.${inputExt}`;
-        const videoTitle = document.getElementById('videoName').textContent || 'clip';
-        const safeTitle = videoTitle.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_').substring(0, 40) || 'clip';
-        const outputName = `${safeTitle}_${secsToStr(start).replace(/:/g, '-')}.mp4`;
-
-        const { fetchFile } = FFmpeg;
-        ff.FS('writeFile', inputName, await fetchFile(videoBlob));
-
-        setProgress(72, 'Memotong dan mengkonversi video...');
-        await ff.run(
-          '-ss', String(start),
-          '-i', inputName,
-          '-t', String(dur),
-          '-c:v', 'libx264',
-          '-preset', 'ultrafast',
-          '-crf', '23',
-          '-c:a', 'aac',
-          '-b:a', '128k',
-          '-movflags', '+faststart',
-          '-pix_fmt', 'yuv420p',
-          outputName
-        );
-
-        setProgress(92, 'Menyiapkan file untuk download...');
-        const data = ff.FS('readFile', outputName);
-        const blob = new Blob([data.buffer], { type: 'video/mp4' });
-        const dlUrl = URL.createObjectURL(blob);
-
+        // Cleanup input
         try { ff.FS('unlink', inputName); } catch (_) { }
-        try { ff.FS('unlink', outputName); } catch (_) { }
+
+        setProgress(90, 'Mengekstrak file ZIP... (Mohon tunggu)');
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const dlUrl = URL.createObjectURL(zipBlob);
+        const zipFilename = `SiniDipotongin_${videoTitle}_${clipQueue.length}clips.zip`;
 
         setProgress(100, 'Selesai! ✅');
         setTimeout(() => {
           progWrap.classList.remove('show');
           resultWrap.innerHTML = `
-            <a class="btn-dl" href="${dlUrl}" download="${outputName}">
-              ⬇️ Download clip (${formatBytes(blob.size)})
+            <a class="btn-dl" href="${dlUrl}" download="${zipFilename}">
+              ⬇️ Download File ZIP (${formatBytes(zipBlob.size)})
             </a>
-            <div style="text-align:center;margin-top:8px;font-size:11px;color:var(--text-3)">
-              ${secsToStr(start)} → ${secsToStr(end)} &middot; ${secsToStr(dur)} &middot; ${quality}p
-            </div>
           `;
           resultWrap.classList.add('show');
-          toast('✅ Clip siap didownload!');
-        }, 400);
+          toast('✅ Berhasil menyusun antrean potongan menjadi file .zip!');
+
+          // Reset queue
+          clipQueue = [];
+          renderQueue();
+        }, 500);
 
       } catch (err) {
-        console.error('Cut error:', err);
+        console.error('Queue error:', err);
         progWrap.classList.remove('show');
         showErr(err.message);
-        toast('❌ Gagal memotong video', 'err');
+        toast('❌ Gagal memproses antrean', 'err');
       } finally {
-        cutBtn.disabled = false;
-        cutBtn.innerHTML = '✂️ Potong &amp; Download';
+        procBtn.disabled = false;
+        addBtn.disabled = false;
+        procBtn.innerHTML = '🚀 Proses Semua Antrean';
       }
-    } // <-- MISSING BRACE FOR startCut()
+    }
 
     function showErr(msg) {
       const el = document.getElementById('errBox');
