@@ -16,29 +16,7 @@
   <!-- JSZip for bulk download zipping -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
-  <!-- COI ServiceWorker: enables SharedArrayBuffer for FFmpeg WASM (via localhost) -->
-  <script>
-    (function () {
-      if (location.protocol === 'file:') return;
-      if (!('serviceWorker' in navigator)) return;
-      var reloaded = sessionStorage.getItem('coi_done');
-      navigator.serviceWorker.register('/coi-serviceworker.js').then(function (reg) {
-        function tryReload() {
-          if (!self.crossOriginIsolated && !reloaded) {
-            sessionStorage.setItem('coi_done', '1');
-            location.reload();
-          }
-        }
-        if (reg.installing) {
-          reg.installing.addEventListener('statechange', function (e) {
-            if (e.target.state === 'activated') tryReload();
-          });
-        } else {
-          tryReload();
-        }
-      }).catch(function (e) { console.warn('COI SW:', e); });
-    })();
-  </script>
+  <!-- Removed COI ServiceWorker: using vercel.json headers for production and local server headers for dev -->
 
   <style>
     *,
@@ -1602,7 +1580,7 @@
         const { createFFmpeg } = FFmpeg;
         ff = createFFmpeg({
           log: false,
-          corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+          corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
         });
         await ff.load();
         ffmpegReady = true;
